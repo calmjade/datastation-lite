@@ -19,8 +19,11 @@ export class ApiError extends Error {
   }
 }
 
+const API_PREFIX = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const targetUrl = url.startsWith('/api') ? `${API_PREFIX}${url}` : url;
+  const res = await fetch(targetUrl, {
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),

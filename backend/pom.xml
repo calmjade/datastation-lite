@@ -18,7 +18,7 @@
     <description>数据驿站 Lite - 配置化低代码报表与 BI 看板平台</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>17</java.version>
     </properties>
 
     <dependencies>
