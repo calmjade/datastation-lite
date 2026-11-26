@@ -13,14 +13,29 @@ import java.util.regex.Pattern;
 @Component
 public class SqlSecurityValidator {
 
+    private static final int MAX_SQL_LENGTH = 4000;
+
     private static final List<String> FORBIDDEN_KEYWORDS = List.of(
             "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE",
             "CREATE", "MERGE", "EXEC", "EXECUTE", "CALL", "GRANT",
-            "REVOKE", "REPLACE", "RUNSCRIPT", "SCRIPT", "SHUTDOWN"
+            "REVOKE", "REPLACE", "RUNSCRIPT", "SCRIPT", "SHUTDOWN",
+            "ALIAS", "JAVA_OBJECT"
+    );
+
+    private static final List<String> FORBIDDEN_FUNCTIONS_AND_SCHEMAS = List.of(
+            "FILE_READ", "FILE_WRITE", "CSVREAD", "CSVWRITE", "LINK_SCHEMA",
+            "SYSTEM_RANGE", "DATABASE_PATH", "MEMORY_FREE", "MEMORY_USED",
+            "READ_BLOB", "READ_CLOB", "H2VERSION", "FT_SEARCH", "FT_CREATE_INDEX",
+            "SESSION_ID", "CURRENT_USER", "INFORMATION_SCHEMA", "PG_CATALOG"
     );
 
     private static final Pattern FORBIDDEN_PATTERN = Pattern.compile(
             "\\b(" + String.join("|", FORBIDDEN_KEYWORDS) + ")\\b",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    private static final Pattern FORBIDDEN_FUNC_PATTERN = Pattern.compile(
+            "\\b(" + String.join("|", FORBIDDEN_FUNCTIONS_AND_SCHEMAS) + ")\\b",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -35,6 +50,10 @@ public class SqlSecurityValidator {
     public String validateAndSanitize(String rawSql) {
         if (rawSql == null || rawSql.isBlank()) {
             throw new SqlValidationException("SQL 语句不能为空");
+        }
+
+        if (rawSql.length() > MAX_SQL_LENGTH) {
+            throw new SqlValidationException("安全拦截：SQL 长度超过上限 (" + MAX_SQL_LENGTH + " 字符)");
         }
 
         String cleanInput = rawSql.trim();
@@ -65,12 +84,18 @@ public class SqlSecurityValidator {
             throw new SqlValidationException("安全拦截：只读查询禁止包含危险关键字 [" + keyword + "]");
         }
 
+        Matcher funcMatcher = FORBIDDEN_FUNC_PATTERN.matcher(trimmedForCheck);
+        if (funcMatcher.find()) {
+            String token = funcMatcher.group(1).toUpperCase(Locale.ROOT);
+            throw new SqlValidationException("安全拦截：禁止调用受限内置函数或访问系统目录 [" + token + "]");
+        }
+
         return cleanInput;
     }
 
     /**
-     * Replaces SQL string literals and comments with spaces so keyword/semicolon checks
-     * only inspect executable SQL tokens while preserving token boundaries.
+     * Strips SQL comments and single-quoted string literals with spaces while preserving
+     * quoted identifier contents so tokens like "FILE_READ" cannot bypass keyword checks.
      */
     private String stripCommentsAndStrings(String sql) {
         StringBuilder sb = new StringBuilder(sql.length());
@@ -121,22 +146,10 @@ public class SqlSecurityValidator {
                 continue;
             }
 
-            // Double-quoted identifier "..."
-            if (c == '"') {
+            // Replace double-quote or backtick delimiters with spaces while keeping identifier text
+            if (c == '"' || c == '`') {
                 sb.append(' ');
                 i++;
-                while (i < len) {
-                    if (sql.charAt(i) == '"') {
-                        if (i + 1 < len && sql.charAt(i + 1) == '"') {
-                            i += 2;
-                            continue;
-                        }
-                        i++;
-                        break;
-                    }
-                    i++;
-                }
-                sb.append(' ');
                 continue;
             }
 

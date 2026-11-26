@@ -37,6 +37,7 @@ public class QueryService {
         List<ColumnMeta> columns = new ArrayList<>();
         List<Map<String, Object>> rows = jdbcTemplate.query(con -> {
             var ps = con.prepareStatement(safeSql);
+            ps.setQueryTimeout(5);
             ps.setMaxRows(effectiveLimit);
             return ps;
         }, rs -> {
